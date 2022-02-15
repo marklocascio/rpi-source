@@ -12,8 +12,9 @@ import struct
 import sys
 import argparse
 import urllib
-import urllib2
-import urlparse
+from urllib.parse import urlparse
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 import gzip
 import subprocess
 import re
@@ -98,7 +99,7 @@ def sh_out(cmd):
     errcode = process.returncode
     if errcode:
         return None
-    return out
+    return out.decode('ascii')
 
 def writef(f, str, mode='w'):
     debug("writef(%s)" % f)
@@ -109,13 +110,13 @@ def writef(f, str, mode='w'):
 def download(url):
     debug("download: %s" % url)
     try:
-        res = urllib2.urlopen(url).read()
-    except urllib2.HTTPError, e:
+        res = urlopen(url).read()
+    except HTTPError as e:
         fail(
             "Couldn't download %s, HTTPError: %s\n\n%s"
             % (url, e.code, json.dumps(json.load(e), indent=4))
         )
-    except urllib2.URLError, e:
+    except URLError as e:
         fail("Couldn't download %s, URLError: %s" % (url, e.args))
     return res
 
@@ -190,7 +191,7 @@ def check_gcc():
     errcode = process.returncode
     if errcode:
         debug("gcc version check failed: '%s' returned %d" %(cmd, errcode))
-    gcc_ver = out.strip()
+    gcc_ver = out.decode('ascii').strip()
 
     with open('/proc/version', 'r') as f:
         proc_version = f.read()
@@ -246,8 +247,8 @@ def rpi_update_method(uri):
     kernel.git_hash = download("%s/%s/git_hash" % (repo_raw, fw_rev)).strip()
     kernel.symvers = "%s/%s/Module%s.symvers" % (repo_raw, fw_rev, processor_type_suffix())
 
-    if not args.default_config:
-        kernel.config = proc_config_gz()
+    # if not args.default_config:
+    #     kernel.config = proc_config_gz()
 
     return kernel
 
@@ -255,7 +256,7 @@ def debian_method(fn):
     kernel = Kernel()
     info("Using: %s" % fn)
     with gzip.open(fn, 'rb') as f:
-        debian_changelog = f.read()
+        debian_changelog = f.read().decode('ascii')
 
     # Find first firmware entry in log (latest entries are at the top)
     fw_rev = re.search(r'firmware as of ([0-9a-fA-F]+)', debian_changelog)
@@ -268,11 +269,11 @@ def debian_method(fn):
 
     repo_raw = "https://raw.githubusercontent.com/raspberrypi/firmware"
 
-    kernel.git_hash = download("%s/%s/extra/git_hash" % (repo_raw, fw_rev)).strip()
+    kernel.git_hash = download("%s/%s/extra/git_hash" % (repo_raw, fw_rev)).decode('ascii').strip()
     kernel.symvers = "%s/%s/extra/Module%s.symvers" % (repo_raw, fw_rev, processor_type_suffix())
 
-    if not args.default_config:
-        kernel.config = proc_config_gz()
+    # if not args.default_config:
+    #     kernel.config = proc_config_gz()
 
     return kernel
 
@@ -345,7 +346,8 @@ if not os.path.isdir(args.dest):
 if not args.skip_gcc:
     check_gcc()
 
-check_bc()
+if not args.nomake:
+    check_bc()
 
 debianlog = "/usr/share/doc/raspberrypi-bootloader/changelog.Debian.gz"
 if os.path.exists("/boot/.firmware_revision"):
@@ -398,7 +400,8 @@ sh("sudo rm -rf /lib/modules/$(uname -r)/build /lib/modules/$(uname -r)/source")
 sh("sudo ln -sf %s /lib/modules/$(uname -r)/build" % linux_symlink)
 sh("sudo ln -sf %s /lib/modules/$(uname -r)/source" % linux_symlink)
 
-if args.default_config or not kernel.config:
+# if args.default_config or not kernel.config:
+if not kernel.config:
     info(".config (generating default)")
     if processor_type == 0:
         sh("cd %s && make bcmrpi_defconfig" % (linux_symlink,))
